@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <new>
 #include <utility>
+#include <execution>
 
 template<typename T>
 class RawMemory {
@@ -194,53 +195,33 @@ void Vector<T>::Reserve(size_t new_capacity) {
     if (new_capacity <= data_.Capacity()) {
         return;
     }
-    size_t counter = 0;
+
     RawMemory<T> new_data(new_capacity);
-    try {
-        for (; counter != size_; ++counter) {
-            CopyConstruct(new_data.GetAddress() + counter, data_[counter]);
-        }
-        DestroyN(data_.GetAddress(), size_);
-        data_.Swap(new_data);
+
+    if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+        std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
+    } else {
+        std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
     }
-    catch (...) {
-        DestroyN(new_data.GetAddress(), counter);
-        throw;
-    }
+
+    std::destroy_n(data_.GetAddress(), size_);
+    data_.Swap(new_data);
 }
 
 
 template<typename T>
 Vector<T>::~Vector() {
-    DestroyN(data_.GetAddress(), size_);
+    std::destroy_n(data_.GetAddress(), size_);
 }
 
 template<typename T>
 Vector<T>::Vector(const Vector &other)
         : data_(other.size_), size_(other.size_) {
-    size_t counter = 0;
-    try {
-        for (; counter != other.size_; ++counter) {
-            CopyConstruct(data_.GetAddress() + counter, other.data_[counter]);
-        }
-    }
-    catch (...) {
-        DestroyN(data_.GetAddress(), counter);
-        throw;
-    }
+    std::uninitialized_copy_n(other.data_.GetAddress(), size_, data_.GetAddress());
 }
 
 template<typename T>
 Vector<T>::Vector(size_t size)
         : data_(size), size_(size) {
-    size_t counter = 0;
-    try {
-        for (; counter != size; ++counter) {
-            new(data_ + counter) T();
-        }
-    }
-    catch (...) {
-        DestroyN(data_.GetAddress(), counter);
-        throw;
-    }
+    std::uninitialized_value_construct_n(data_.GetAddress(), size);
 }
