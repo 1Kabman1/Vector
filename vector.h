@@ -80,6 +80,13 @@ public:
 
     void Reserve(size_t new_capacity);
 
+    void Resize(size_t new_size) ;
+
+    template <typename Type>
+    void PushBack(Type&& value);
+
+    void PopBack();
+
 
     size_t Size() const noexcept;
 
@@ -134,6 +141,8 @@ public:
 
     T &operator[](size_t index) noexcept;
 
+
+
 private:
     static T *Allocate(size_t n);
 
@@ -149,6 +158,33 @@ private:
     RawMemory<T> data_;
     size_t size_ = 0;
 };
+
+template<typename T>
+void Vector<T>::PopBack() {
+    assert(size_);
+    std::destroy_at(data_.GetAddress() + size_ - 1);
+    --size_;
+}
+
+template<typename T>
+void Vector<T>::Resize(size_t new_size) {
+
+    if (new_size < size_) {
+        std::destroy_n(data_.GetAddress() + new_size, size_ - new_size);
+
+    } else {
+
+        if (new_size > data_.Capacity()) {
+            const size_t new_capacity = std::max(data_.Capacity() * 2, new_size);
+
+            Reserve(new_capacity);
+        }
+
+        std::uninitialized_value_construct_n(data_.GetAddress() + size_, new_size - size_);
+    }
+
+    size_ = new_size;
+}
 
 template<typename T>
 void Vector<T>::Destroy(T *buf) noexcept {
@@ -219,6 +255,32 @@ void Vector<T>::Reserve(size_t new_capacity) {
     data_.Swap(new_data);
 }
 
+
+template <typename T>
+template <typename Type>
+void Vector<T>::PushBack(Type&& value) {
+
+    if (data_.Capacity() <= size_) {
+
+        RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
+
+        new (new_data.GetAddress() + size_) T(std::forward<Type>(value));
+
+        if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+            std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
+        } else {
+            std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
+        }
+
+        std::destroy_n(data_.GetAddress(), size_);
+        data_.Swap(new_data);
+
+    } else {
+        new (data_.GetAddress() + size_) T(std::forward<Type>(value));
+    }
+
+    size_++;
+}
 
 template<typename T>
 Vector<T>::~Vector() {
